@@ -4,11 +4,25 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Resources\EventResource;
+use App\Http\Traits\CanLoadRelationships;
 use App\Models\Event;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Gate;
 
 class EventController extends Controller
 {
+    use CanLoadRelationships;
+    
+    private $relations = ['user', 'attendee', 'attendee.user'];
+    
+    public function __construct()
+    {
+        $this->middleware('auth:sanctum')->except(['index', 'show']);
+        $this->middleware('throttle:api')
+            ->only(['store', 'update', 'destroy']);
+        $this->authorizeResource(Event::class, 'event');
+    }
+
     /**
      * Display a listing of the resource.
      *
@@ -16,8 +30,16 @@ class EventController extends Controller
      */
     public function index()
     {
-        return EventResource::collection(Event::with('user', 'attendee')->get());
+        // $query = Event::query();
+        // $relations = ['user', 'attendee', 'attendee.user'];
+        $query = $this->loadRelationships(Event::query());
+
+        return EventResource::collection(
+            $query->latest()->paginate()
+        );
     }
+
+
 
     /**
      * Store a newly created resource in storage.
@@ -34,10 +56,10 @@ class EventController extends Controller
                 'start_time' => 'required|date',
                 'end_time' => 'required|date|after:start_time'
             ]),
-            'user_id' => 1
+            'user_id' => $request->user()->id 
             
         ]);
-        return new EventResource($event);
+        return new EventResource($this->loadRelationships($event));
     }
 
     /**
@@ -46,18 +68,18 @@ class EventController extends Controller
      * @param  int  $id
      * @return \Illuminate\Http\Response
      */
-    public function show($id)
+    public function show(Event $event)
     {
         
-        $event = Event::find($id);
-        if(!$event)
-        {
-            return response()->json([
-                'message' => 'No Event with this current id'
-            ], 404);
-        }
+        // $event = Event::find($id);
+        // if(!$event)
+        // {
+        //     return response()->json([
+        //         'message' => 'No Event with this current id'
+        //     ], 404);
+        // }
         $event->load('user', 'attendee');
-        return new EventResource($event);
+        return new EventResource($this->loadRelationships($event));
     }
 
     /**
@@ -69,6 +91,12 @@ class EventController extends Controller
      */
     public function update(Request $request, Event $event)
     {
+        // if(Gate::denies('update-event', $event)){
+        //     abort(403, 'You are not authorized to update this event.');
+        // }
+
+        // $this->authorize('update-event', $event);
+
         $event->update(
             $request->validate([
                 'name' => 'sometimes|max:255',
@@ -77,7 +105,7 @@ class EventController extends Controller
                 'end_time' => 'sometimes|date|after:start_time'
             ])
             );
-            return new EventResource($event);
+            return new EventResource($this->loadRelationships($event));
     }
 
     /**
